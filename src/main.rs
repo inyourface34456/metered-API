@@ -1,26 +1,61 @@
 #![allow(non_snake_case)]
-use sqlx::mysql::MySqlPoolOptions;
-// use tokio;
-// etc.
+use warp::Filter;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use rand::Rng;
 
-// #[async_std::main] // Requires the `attributes` feature of `async-std`
+#[derive(Clone)]
+struct Ids {
+    id_list: Arc<RwLock<Vec<u64>>>,
+    usage_list: Arc<RwLock<HashMap<u64, HashMap<String, u32>>>>
+}
+
+impl Ids {
+    fn new() -> Self {
+        Self {
+            id_list: Arc::new(RwLock::new(vec![])),
+            usage_list: Arc::new(RwLock::new(HashMap::new()))
+        }
+    }
+
+    fn gen_new_id(&self) -> u64 {
+        let mut rng = rand::thread_rng();
+        let correct_id: u64;
+    
+        loop {
+            if let Ok(mut vec) = self.id_list.try_write() {
+                loop {
+                    let id: u64 = rng.gen();
+                    if !vec.contains(&id) {
+                        vec.push(id);
+                        correct_id = id;
+                        break
+                    }
+
+                    loop {
+                        if let Ok(mut map) = self.usage_list.try_write() {
+                            //if map.keys().collect::<Vec<_>>().contains()
+                            break
+                        }
+                    }
+                }
+                break
+            }
+        }
+        correct_id
+    }
+}
+
 #[tokio::main]
-// or #[actix_web::main]
-async fn main() -> Result<(), sqlx::Error> {
-    // Create a connection pool
-    //  for MySQL/MariaDB, use MySqlPoolOptions::new()
-    //  for SQLite, use SqlitePoolOptions::new()
-    //  etc.
-    let pool = MySqlPoolOptions::new()
-        .max_connections(5)
-        .connect("sqlite://test.db").await?;
+async fn main() {
+    // GET /hello/warp => 200 OK with body "Hello, warp!"
+    let ids = Ids::new();
+    // let ids_filter = warp::path("get_id").map(|| );
 
-    // Make a simple query to return the given parameter (use a question mark `?` instead of `$1` for MySQL/MariaDB)
-    let row: (i64,) = sqlx::query_as("SELECT $1")
-        .bind(150_i64)
-        .fetch_one(&pool).await?;
+    let hello = warp::path("get_id").map(move || ids.gen_new_id().to_string());
 
-    assert_eq!(row.0, 150);
 
-    Ok(())
+    warp::serve(hello)
+        .run(([127, 0, 0, 1], 3030))
+        .await;
 }

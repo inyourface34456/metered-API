@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sqlx = "0.7.3"
-tokio = "1.36.0"
+rand = "0.8.5"
+tokio = { version = "1.36.0", features = ["macros", "rt-multi-thread"] }
 warp = "0.3.6"
