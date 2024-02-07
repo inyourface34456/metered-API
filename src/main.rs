@@ -120,7 +120,8 @@ impl Ids {
                             let current_time = get_unix_epoch();
 
                             if dat.num_times_used >= dat.endpoint.req_before_cooldown.into() {
-                                dat.next_use_allowed = current_time+dat.next_use_allowed*60*1000;
+                                dat.next_use_allowed =
+                                    current_time + dat.next_use_allowed * 60 * 1000;
                                 allowed = false;
                                 dat.num_times_used = 0;
                             } else if dat.next_use_allowed > current_time {
@@ -168,7 +169,7 @@ async fn main() {
     // GET /hello/warp => 200 OK with body "Hello, warp!"
     let ids = Ids::new();
     let ids_filter = warp::any().map(move || ids.clone());
-    
+
     let api_1 = warp::post()
         .and(warp::path("api_1"))
         .and(warp::path::end())
@@ -188,14 +189,17 @@ async fn main() {
         .and(warp::path::end())
         .and(ids_filter.clone())
         .and_then(get_id);
-    
+
     let routes = warp::post().and(hello_get.or(api_1).or(api_2));
 
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
 fn get_unix_epoch() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
 }
 
 fn json_body() -> impl Filter<Extract = (u128,), Error = warp::Rejection> + Clone {
