@@ -107,71 +107,103 @@ impl Ids {
 
     fn gen_new_id(&self, role: Role) -> u128 {
         let mut rng = rand::thread_rng();
-        let correct_id: u128;
+        let mut correct_id: u128 = 0;
 
-        loop {
-            if let Ok(mut vec) = self.id_list.try_write() {
-                loop {
-                    let id: u128 = rng.gen();
-                    if !vec.keys().collect::<Vec<_>>().contains(&&id) {
-                        vec.insert(id, role);
-                        correct_id = id;
-                        break;
-                    }
+        /* loop {
+        //     if let Ok(mut vec) = self.id_list.try_write() {
+        //         loop {
+        //             let id: u128 = rng.gen();
+        //             if !vec.contains_key(&&id) {
+        //                 vec.insert(id, role);
+        //                 correct_id = id;
+        //                 break;
+        //             }
+        //         }
+
+        //         loop {
+        //             if let Ok(mut map) = self.usage_list.try_write() {
+        //                 if !map.contains_key(&&correct_id) {
+        //                     map.insert(correct_id, Self::gen_start_hashmap(role));
+        //                 }
+        //                 break;
+        //             }
+        //         }
+        //         break;
+        //     }
+        // }*/
+
+        match self.id_list.write() {
+            Ok(mut map) => loop {
+                let id: u128 = rng.gen();
+                if !map.contains_key(&&id) {
+                    map.insert(id, role);
+                    correct_id = id;
+                    break;
                 }
 
-                loop {
-                    if let Ok(mut map) = self.usage_list.try_write() {
-                        if !map.keys().collect::<Vec<_>>().contains(&&correct_id) {
-                            map.insert(correct_id, Self::gen_start_hashmap(role));
-                        }
-                        break;
+                match self.usage_list.write() {
+                    Ok(mut map) => {
+                        map.insert(correct_id, Self::gen_start_hashmap(role));
+                        println!("usage init sucsess");
+                    }
+                    Err(_) => {
+                        println!("usage init failed")
                     }
                 }
-                break;
+            },
+            Err(_) => {
+                println!("registration falied")
             }
         }
         correct_id
     }
 
     fn register_hit(&self, user: u128, endpoint: &str) -> (bool, Role) {
-        let allowed: bool;
-        let role: Role;
+        let mut allowed: bool = true;
+        let mut role: Role = Role::Standered;
 
-        loop {
-            if let Ok(map) = self.id_list.try_read() {
-                match map.get(&user) {
-                    Some(dat) => role = *dat,
-                    None => unreachable!(),
-                }
-                break;
+        match self.id_list.read() {
+            Ok(map) => match map.get(&user) {
+                Some(dat) => role = *dat,
+                None => println!("role fetch failed"),
+            },
+            Err(_) => {
+                println!("role fetch failed")
             }
         }
 
-        loop {
-            if let Ok(mut map) = self.usage_list.try_write() {
-                match map.get_mut(&user) {
-                    Some(dat) => match dat.get_mut(endpoint) {
-                        Some(dat) => {
-                            let current_time = get_unix_epoch();
+        match self.usage_list.write() {
+            Ok(mut map) => match map.get_mut(&user) {
+                Some(dat) => match dat.get_mut(endpoint) {
+                    Some(dat) => {
+                        let current_time = get_unix_epoch();
 
-                            if dat.num_times_used >= dat.endpoint.req_before_cooldown.into() {
-                                dat.next_use_allowed =
-                                    current_time + dat.next_use_allowed * 60 * 1000;
-                                allowed = false;
-                                dat.num_times_used = 0;
-                            } else if dat.next_use_allowed > current_time {
-                                allowed = false;
-                            } else {
-                                allowed = true;
-                                dat.num_times_used += 1;
-                            }
+                        if dat.num_times_used >= dat.endpoint.req_before_cooldown.into() {
+                            dat.next_use_allowed = current_time + dat.next_use_allowed * 60 * 1000;
+                            allowed = false;
+                            dat.num_times_used = 0;
+                            println!("to many req");
+                        } else if dat.next_use_allowed > current_time {
+                            allowed = false;
+                            println!("cooldown")
+                        } else {
+                            allowed = true;
+                            dat.num_times_used += 1;
+                            println!("allowed")
                         }
-                        None => allowed = false,
-                    },
-                    None => allowed = false,
+                    }
+                    None => {
+                        allowed = false;
+                        println!("no usage data")
+                    }
+                },
+                None => {
+                    allowed = false;
+                    println!("not registared");
                 }
-                break;
+            },
+            Err(_) => {
+                println!("could not aquire lock");
             }
         }
 
@@ -199,8 +231,8 @@ async fn api_2_hit(user: u128, arg_2: Ids) -> Result<impl warp::Reply, warp::Rej
     }
 }
 
-async fn get_id(arg_1: Role, arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
-    Ok(warp::reply::json(&arg_2.gen_new_id(arg_1).to_string()))
+async fn get_id(arg_1: Role, arg_2: Ids) -> Result<warp::reply::Html<String>, warp::Rejection> {
+    Ok(warp::reply::html(arg_2.gen_new_id(arg_1).to_string()))
 }
 
 #[tokio::main]
