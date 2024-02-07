@@ -124,16 +124,11 @@ impl Ids {
                 match self.usage_list.write() {
                     Ok(mut map) => {
                         map.insert(correct_id, Self::gen_start_hashmap(role));
-                        println!("usage init sucsess");
                     }
-                    Err(_) => {
-                        println!("usage init failed")
-                    }
+                    Err(_) => {}
                 }
             }
-            Err(_) => {
-                println!("registration falied")
-            }
+            Err(_) => {}
         }
         correct_id
     }
@@ -145,11 +140,9 @@ impl Ids {
         match self.id_list.read() {
             Ok(map) => match map.get(&user) {
                 Some(dat) => role = *dat,
-                None => println!("role fetch failed"),
+                None => unreachable!(),
             },
-            Err(_) => {
-                println!("role fetch failed")
-            }
+            Err(_) => {}
         }
 
         match self.usage_list.write() {
@@ -162,29 +155,18 @@ impl Ids {
                             dat.next_use_allowed = current_time + dat.next_use_allowed * 60 * 1000;
                             allowed = false;
                             dat.num_times_used = 0;
-                            println!("to many req");
                         } else if dat.next_use_allowed > current_time {
                             allowed = false;
-                            println!("cooldown")
                         } else {
                             allowed = true;
                             dat.num_times_used += 1;
-                            println!("allowed")
                         }
                     }
-                    None => {
-                        allowed = false;
-                        println!("no usage data")
-                    }
+                    None => allowed = false,
                 },
-                None => {
-                    allowed = false;
-                    println!("not registared");
-                }
+                None => allowed = false,
             },
-            Err(_) => {
-                println!("could not aquire lock");
-            }
+            Err(_) => {}
         }
 
         (allowed, role)
