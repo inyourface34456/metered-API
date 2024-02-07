@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 use rand::Rng;
 use serde::Deserialize;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -109,35 +110,12 @@ impl Ids {
         let mut rng = rand::thread_rng();
         let mut correct_id: u128 = 0;
 
-        /* loop {
-        //     if let Ok(mut vec) = self.id_list.try_write() {
-        //         loop {
-        //             let id: u128 = rng.gen();
-        //             if !vec.contains_key(&&id) {
-        //                 vec.insert(id, role);
-        //                 correct_id = id;
-        //                 break;
-        //             }
-        //         }
-
-        //         loop {
-        //             if let Ok(mut map) = self.usage_list.try_write() {
-        //                 if !map.contains_key(&&correct_id) {
-        //                     map.insert(correct_id, Self::gen_start_hashmap(role));
-        //                 }
-        //                 break;
-        //             }
-        //         }
-        //         break;
-        //     }
-        // }*/
-
         match self.id_list.write() {
             Ok(mut map) => {
                 loop {
                     let id: u128 = rng.gen();
-                    if !map.contains_key(&&id) {
-                        map.insert(id, role);
+                    if let Entry::Vacant(e) = map.entry(id) {
+                        e.insert(role);
                         correct_id = id;
                         break;
                     }
