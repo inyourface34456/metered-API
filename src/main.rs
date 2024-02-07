@@ -1,10 +1,10 @@
 #![allow(non_snake_case)]
 use rand::Rng;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use warp::Filter;
-// use serde::Deserialize;
 
 #[derive(Hash, Eq, PartialEq)]
 struct Usage {
@@ -25,9 +25,24 @@ impl Usage {
     }
 }
 
+impl From<Role> for String {
+    fn from(data: Role) -> String {
+        match data {
+            Role::Standered => String::from("Standard"),
+            Role::Admin => String::from("Admin"),
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Copy)]
+enum Role {
+    Standered,
+    Admin,
+}
+
 #[derive(Clone)]
 struct Ids {
-    id_list: Arc<RwLock<Vec<u128>>>,
+    id_list: Arc<RwLock<HashMap<u128, Role>>>,
     usage_list: Arc<RwLock<HashMap<u128, HashMap<String, Usage>>>>,
 }
 
@@ -62,25 +77,37 @@ impl Ids {
 
     fn new() -> Self {
         Self {
-            id_list: Arc::new(RwLock::new(vec![])),
+            id_list: Arc::new(RwLock::new(HashMap::new())),
             usage_list: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    fn gen_start_hashmap() -> HashMap<String, Usage> {
+    fn gen_start_hashmap(role: Role) -> HashMap<String, Usage> {
         let mut map = HashMap::new();
 
-        for i in Self::API_LIMITS {
-            map.insert(
-                String::from(i.0),
-                Usage::new(String::from(i.0), i.1, i.2, i.3),
-            );
+        match role {
+            Role::Standered => {
+                for i in Self::API_LIMITS {
+                    map.insert(
+                        String::from(i.0),
+                        Usage::new(String::from(i.0), i.1, i.2, i.3),
+                    );
+                }
+            }
+            Role::Admin => {
+                for i in Self::API_LIMITS {
+                    map.insert(
+                        String::from(i.0),
+                        Usage::new(String::from(i.0), u16::MAX, 0, 0),
+                    );
+                }
+            }
         }
 
         map
     }
 
-    fn gen_new_id(&self) -> u128 {
+    fn gen_new_id(&self, role: Role) -> u128 {
         let mut rng = rand::thread_rng();
         let correct_id: u128;
 
@@ -88,8 +115,8 @@ impl Ids {
             if let Ok(mut vec) = self.id_list.try_write() {
                 loop {
                     let id: u128 = rng.gen();
-                    if !vec.contains(&id) {
-                        vec.push(id);
+                    if !vec.keys().collect::<Vec<_>>().contains(&&id) {
+                        vec.insert(id, role);
                         correct_id = id;
                         break;
                     }
@@ -98,7 +125,7 @@ impl Ids {
                 loop {
                     if let Ok(mut map) = self.usage_list.try_write() {
                         if !map.keys().collect::<Vec<_>>().contains(&&correct_id) {
-                            map.insert(correct_id, Self::gen_start_hashmap());
+                            map.insert(correct_id, Self::gen_start_hashmap(role));
                         }
                         break;
                     }
@@ -109,8 +136,19 @@ impl Ids {
         correct_id
     }
 
-    fn register_hit(&self, user: u128, endpoint: &str) -> bool {
+    fn register_hit(&self, user: u128, endpoint: &str) -> (bool, Role) {
         let allowed: bool;
+        let role: Role;
+
+        loop {
+            if let Ok(map) = self.id_list.try_read() {
+                match map.get(&user) {
+                    Some(dat) => role = *dat,
+                    None => unreachable!(),
+                }
+                break;
+            }
+        }
 
         loop {
             if let Ok(mut map) = self.usage_list.try_write() {
@@ -140,33 +178,36 @@ impl Ids {
             }
         }
 
-        allowed
+        (allowed, role)
     }
 }
 
 async fn api_1_hit(user: u128, arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
-    if arg_2.register_hit(user, "/api_1") {
-        Ok(warp::reply::json(&String::from("sucsess")))
+    let result = arg_2.register_hit(user, "/api_1");
+
+    if result.0 {
+        Ok(warp::reply::json(&String::from(result.1)))
     } else {
         Ok(warp::reply::json(&String::from("failed")))
     }
 }
 
 async fn api_2_hit(user: u128, arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
-    if arg_2.register_hit(user, "/api_2") {
-        Ok(warp::reply::json(&String::from("sucsess")))
+    let result = arg_2.register_hit(user, "/api_2");
+
+    if result.0 {
+        Ok(warp::reply::json(&String::from(result.1)))
     } else {
         Ok(warp::reply::json(&String::from("failed")))
     }
 }
 
-async fn get_id(arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
-    Ok(warp::reply::json(&arg_2.gen_new_id().to_string()))
+async fn get_id(arg_1: Role, arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
+    Ok(warp::reply::json(&arg_2.gen_new_id(arg_1).to_string()))
 }
 
 #[tokio::main]
 async fn main() {
-    // GET /hello/warp => 200 OK with body "Hello, warp!"
     let ids = Ids::new();
     let ids_filter = warp::any().map(move || ids.clone());
 
@@ -187,6 +228,7 @@ async fn main() {
     let hello_get = warp::post()
         .and(warp::path("get_id"))
         .and(warp::path::end())
+        .and(role_json())
         .and(ids_filter.clone())
         .and_then(get_id);
 
@@ -203,6 +245,12 @@ fn get_unix_epoch() -> u128 {
 }
 
 fn json_body() -> impl Filter<Extract = (u128,), Error = warp::Rejection> + Clone {
+    // When accepting a body, we want a JSON body
+    // (and to reject huge payloads)...
+    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+}
+
+fn role_json() -> impl Filter<Extract = (Role,), Error = warp::Rejection> + Clone {
     // When accepting a body, we want a JSON body
     // (and to reject huge payloads)...
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())

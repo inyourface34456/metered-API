@@ -370,6 +370,7 @@ name = "meatered-API"
 version = "0.1.0"
 dependencies = [
  "rand",
+ "serde",
  "tokio",
  "warp",
 ]
