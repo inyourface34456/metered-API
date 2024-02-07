@@ -133,12 +133,14 @@ impl Ids {
         // }*/
 
         match self.id_list.write() {
-            Ok(mut map) => loop {
-                let id: u128 = rng.gen();
-                if !map.contains_key(&&id) {
-                    map.insert(id, role);
-                    correct_id = id;
-                    break;
+            Ok(mut map) => {
+                loop {
+                    let id: u128 = rng.gen();
+                    if !map.contains_key(&&id) {
+                        map.insert(id, role);
+                        correct_id = id;
+                        break;
+                    }
                 }
 
                 match self.usage_list.write() {
@@ -150,7 +152,7 @@ impl Ids {
                         println!("usage init failed")
                     }
                 }
-            },
+            }
             Err(_) => {
                 println!("registration falied")
             }
