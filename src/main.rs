@@ -8,7 +8,6 @@ use warp::Filter;
 
 #[derive(Hash, Eq, PartialEq)]
 struct Usage {
-    last_time_used: u128,
     num_times_used: u32,
     next_use_allowed: u128,
     endpoint: Endpoint,
@@ -17,7 +16,6 @@ struct Usage {
 impl Usage {
     fn new(name: String, req_before_cooldown: u16, lim_time: u16, cooldown_time: u16) -> Self {
         Self {
-            last_time_used: 0,
             num_times_used: 0,
             next_use_allowed: 0,
             endpoint: Endpoint::new(name, req_before_cooldown, lim_time, cooldown_time),
@@ -167,7 +165,6 @@ impl Ids {
                             } else {
                                 allowed = true;
                                 dat.num_times_used += 1;
-                                dat.last_time_used = current_time;
                             }
                         }
                         None => allowed = false,
