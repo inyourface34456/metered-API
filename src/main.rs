@@ -24,25 +24,34 @@ impl Usage {
     }
 }
 
+#[derive(Deserialize)]
+struct Data<T> {
+    authentication: u128,
+    data: T,
+}
+
 impl From<Role> for String {
     fn from(data: Role) -> String {
         match data {
             Role::Standered => String::from("Standard"),
             Role::Admin => String::from("Admin"),
+            Role::None => String::from("None"),
         }
     }
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 enum Role {
     Standered,
     Admin,
+    None,
 }
 
 #[derive(Clone)]
 struct Ids {
     id_list: Arc<RwLock<HashMap<u128, Role>>>,
     usage_list: Arc<RwLock<HashMap<u128, HashMap<String, Usage>>>>,
+    api_3_data: Arc<RwLock<Vec<i32>>>,
 }
 
 #[derive(Hash, Eq, PartialEq)]
@@ -71,13 +80,17 @@ impl Endpoint {
 
 impl Ids {
     // you can make A number of hits on ENDPOINT in B time, if you go over, you have to wait C mins
-    const API_LIMITS: [(&'static str, u16, u16, u16); 2] =
-        [("/api_1", 10, 1, 1), ("/api_2", 1, 10, 100)];
+    const API_LIMITS: [(&'static str, u16, u16, u16); 3] = [
+        ("/api_1", 10, 1, 1),
+        ("/api_2", 1, 10, 100),
+        ("/api_3", 60, 1, 1),
+    ];
 
     fn new() -> Self {
         Self {
             id_list: Arc::new(RwLock::new(HashMap::new())),
             usage_list: Arc::new(RwLock::new(HashMap::new())),
+            api_3_data: Arc::new(RwLock::new(vec![])),
         }
     }
 
@@ -100,7 +113,8 @@ impl Ids {
                         Usage::new(String::from(i.0), u16::MAX, 0, 0),
                     );
                 }
-            }
+            },
+            Role::None => {},
         }
 
         map
@@ -135,12 +149,12 @@ impl Ids {
 
     fn register_hit(&self, user: u128, endpoint: &str) -> (bool, Role) {
         let mut allowed: bool = true;
-        let mut role: Role = Role::Standered;
+        let mut role: Role = Role::None;
 
         match self.id_list.read() {
             Ok(map) => match map.get(&user) {
                 Some(dat) => role = *dat,
-                None => unreachable!(),
+                None => {},
             },
             Err(_) => {}
         }
@@ -194,7 +208,27 @@ async fn api_2_hit(user: u128, arg_2: Ids) -> Result<impl warp::Reply, warp::Rej
 }
 
 async fn get_id(arg_1: Role, arg_2: Ids) -> Result<warp::reply::Html<String>, warp::Rejection> {
+    if arg_1 == Role::None {
+        return Ok(warp::reply::html(String::from("failed")));
+    }
+
     Ok(warp::reply::html(arg_2.gen_new_id(arg_1).to_string()))
+}
+
+async fn api_3_hit(data: Data<i32>, ids: Ids) -> Result<impl warp::Reply, warp::Rejection> {
+    let result = ids.register_hit(data.authentication, "/api_3");
+
+    if result.0 {
+        match ids.api_3_data.write() {
+            Ok(mut dat) => {
+                dat.push(data.data);
+                return Ok(warp::reply::json(&dat.clone()));
+            }
+            Err(_) => return Ok(warp::reply::json(&String::from("failed"))),
+        }
+    } else {
+        return Ok(warp::reply::json(&String::from("failed")));
+    }
 }
 
 #[tokio::main]
@@ -223,7 +257,14 @@ async fn main() {
         .and(ids_filter.clone())
         .and_then(get_id);
 
-    let routes = warp::post().and(hello_get.or(api_1).or(api_2));
+    let api_3 = warp::post()
+        .and(warp::path("api_3"))
+        .and(warp::path::end())
+        .and(json_arb_data())
+        .and(ids_filter.clone())
+        .and_then(api_3_hit);
+
+    let routes = warp::post().and(hello_get.or(api_1).or(api_2).or(api_3));
 
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
@@ -235,7 +276,20 @@ fn get_unix_epoch() -> u128 {
         .as_millis()
 }
 
+// fn json_body<T: std::marker::Send + for<'de> Deserialize<'de>>() -> impl Filter<Extract = (T,), Error = warp::Rejection> + Clone {
+//     // When accepting a body, we want a JSON body
+//     // (and to reject huge payloads)...
+//     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+// }
+
 fn json_body() -> impl Filter<Extract = (u128,), Error = warp::Rejection> + Clone {
+    // When accepting a body, we want a JSON body
+    // (and to reject huge payloads)...
+    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+}
+
+fn json_arb_data<T: std::marker::Send + for<'de> Deserialize<'de>>(
+) -> impl Filter<Extract = (Data<T>,), Error = warp::Rejection> + Clone {
     // When accepting a body, we want a JSON body
     // (and to reject huge payloads)...
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
