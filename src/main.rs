@@ -1,11 +1,13 @@
 #![allow(non_snake_case)]
 use rand::Rng;
 use serde::Deserialize;
+use http::StatusCode;
+use warp::*;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use warp::Filter;
+use Filter;
 
 #[derive(Hash, Eq, PartialEq)]
 struct Usage {
@@ -25,7 +27,7 @@ impl Usage {
 }
 
 #[derive(Deserialize)]
-struct Data<T> {
+struct Data<T: std::marker::Send> {
     authentication: u128,
     data: T,
 }
@@ -45,13 +47,6 @@ enum Role {
     Standered,
     Admin,
     None,
-}
-
-#[derive(Clone)]
-struct Ids {
-    id_list: Arc<RwLock<HashMap<u128, Role>>>,
-    usage_list: Arc<RwLock<HashMap<u128, HashMap<String, Usage>>>>,
-    api_3_data: Arc<RwLock<Vec<i32>>>,
 }
 
 #[derive(Hash, Eq, PartialEq)]
@@ -78,12 +73,20 @@ impl Endpoint {
     }
 }
 
+#[derive(Clone)]
+struct Ids {
+    id_list: Arc<RwLock<HashMap<u128, Role>>>,
+    usage_list: Arc<RwLock<HashMap<u128, HashMap<String, Usage>>>>,
+    api_3_data: Arc<RwLock<Vec<i32>>>,
+}
+
 impl Ids {
     // you can make A number of hits on ENDPOINT in B time, if you go over, you have to wait C mins
-    const API_LIMITS: [(&'static str, u16, u16, u16); 3] = [
+    const API_LIMITS: [(&'static str, u16, u16, u16); 4] = [
         ("/api_1", 10, 1, 1),
         ("/api_2", 1, 10, 100),
         ("/api_3", 60, 1, 1),
+        ("/api_4", 60, 1, 1),
     ];
 
     fn new() -> Self {
@@ -113,8 +116,8 @@ impl Ids {
                         Usage::new(String::from(i.0), u16::MAX, 0, 0),
                     );
                 }
-            },
-            Role::None => {},
+            }
+            Role::None => {}
         }
 
         map
@@ -123,6 +126,10 @@ impl Ids {
     fn gen_new_id(&self, role: Role) -> u128 {
         let mut rng = rand::thread_rng();
         let mut correct_id: u128 = 0;
+
+        if role == Role::None {
+            return 0;
+        }
 
         match self.id_list.write() {
             Ok(mut map) => {
@@ -154,7 +161,7 @@ impl Ids {
         match self.id_list.read() {
             Ok(map) => match map.get(&user) {
                 Some(dat) => role = *dat,
-                None => {},
+                None => {}
             },
             Err(_) => {}
         }
@@ -185,88 +192,149 @@ impl Ids {
 
         (allowed, role)
     }
+
+    fn time_until_next_allowed_hit(&self, user: u128, endpoint: &str) -> u128 {
+        match self.usage_list.read() {
+            Ok(dat) => {
+                match dat.get(&user) {
+                    Some(dat) => {
+                        match dat.get(&endpoint.to_string()) {
+                            Some(dat) => {
+                                let current_time = get_unix_epoch();
+
+                                if dat.next_use_allowed > current_time {
+                                    return (dat.next_use_allowed - current_time) / 1000
+                                } else {
+                                    return 0
+                                }
+                            }
+                            None => 0
+                        }
+                    }
+                    None => 0
+                }
+            },
+            Err(_) => 0
+        }
+    }
+
+    fn num_hits_untill_timeout(&self, user: u128, endpoint: &str) -> u32 {
+        match self.usage_list.read() {
+            Ok(dat) => {
+                match dat.get(&user) {
+                    Some(dat) => {
+                        match dat.get(&endpoint.to_string()) {
+                            Some(dat) => {
+                               dat.endpoint.req_before_cooldown as u32 - dat.num_times_used
+                            }
+                            None => 0
+                        }
+                    }
+                    None => 0
+                }
+            },
+            Err(_) => 0
+        }
+    }
 }
 
-async fn api_1_hit(user: u128, arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
+async fn api_1_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
     let result = arg_2.register_hit(user, "/api_1");
 
     if result.0 {
-        Ok(warp::reply::json(&String::from(result.1)))
+        Ok(reply::json(&String::from(result.1)))
     } else {
-        Ok(warp::reply::json(&String::from("failed")))
+        Ok(reply::json(&String::from("failed")))
     }
 }
 
-async fn api_2_hit(user: u128, arg_2: Ids) -> Result<impl warp::Reply, warp::Rejection> {
+async fn api_2_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
     let result = arg_2.register_hit(user, "/api_2");
 
     if result.0 {
-        Ok(warp::reply::json(&String::from(result.1)))
+        Ok(reply::json(&String::from(result.1)))
     } else {
-        Ok(warp::reply::json(&String::from("failed")))
+        Ok(reply::json(&String::from("failed")))
     }
 }
 
-async fn get_id(arg_1: Role, arg_2: Ids) -> Result<warp::reply::Html<String>, warp::Rejection> {
+async fn get_id(arg_1: Role, arg_2: Ids) -> Result<reply::Html<String>, Rejection> {
     if arg_1 == Role::None {
-        return Ok(warp::reply::html(String::from("failed")));
+        return Ok(reply::html(String::from("failed")));
     }
 
-    Ok(warp::reply::html(arg_2.gen_new_id(arg_1).to_string()))
+    Ok(reply::html(arg_2.gen_new_id(arg_1).to_string()))
 }
 
-async fn api_3_hit(data: Data<i32>, ids: Ids) -> Result<impl warp::Reply, warp::Rejection> {
+async fn api_3_hit(data: Data<i32>, ids: Ids) -> Result<impl Reply, Rejection> {
     let result = ids.register_hit(data.authentication, "/api_3");
 
     if result.0 {
         match ids.api_3_data.write() {
             Ok(mut dat) => {
                 dat.push(data.data);
-                return Ok(warp::reply::json(&dat.clone()));
+                return Ok(reply::json(&dat.clone()));
             }
-            Err(_) => return Ok(warp::reply::json(&String::from("failed"))),
+            Err(_) => return Ok(reply::json(&String::from("failed"))),
         }
     } else {
-        return Ok(warp::reply::json(&String::from("failed")));
+        return Ok(reply::json(&String::from("failed")));
+    }
+}
+
+async fn api_4_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(data.authentication, "/api_4").0;
+
+    if result {
+        return Ok(reply::with_status(reply::json(&data.data), StatusCode::OK))
+    } else {
+        return Ok(reply::with_status(reply::json(&"retelimated".to_string()), StatusCode::TOO_MANY_REQUESTS))
     }
 }
 
 #[tokio::main]
 async fn main() {
     let ids = Ids::new();
-    let ids_filter = warp::any().map(move || ids.clone());
+    let ids_filter = any().map(move || ids.clone());
 
-    let api_1 = warp::post()
-        .and(warp::path("api_1"))
-        .and(warp::path::end())
+    let api_1 = post()
+        .and(path("api_1"))
+        .and(path::end())
         .and(json_body())
         .and(ids_filter.clone())
         .and_then(api_1_hit);
 
-    let api_2 = warp::post()
-        .and(warp::path("api_2"))
-        .and(warp::path::end())
+    let api_2 = post()
+        .and(path("api_2"))
+        .and(path::end())
         .and(json_body())
         .and(ids_filter.clone())
         .and_then(api_2_hit);
 
-    let hello_get = warp::post()
-        .and(warp::path("get_id"))
-        .and(warp::path::end())
+    let hello_get = post()
+        .and(path("get_id"))
+        .and(path::end())
         .and(role_json())
         .and(ids_filter.clone())
         .and_then(get_id);
 
-    let api_3 = warp::post()
-        .and(warp::path("api_3"))
-        .and(warp::path::end())
+    let api_3 = post()
+        .and(path("api_3"))
+        .and(path::end())
         .and(json_arb_data())
         .and(ids_filter.clone())
         .and_then(api_3_hit);
 
-    let routes = warp::post().and(hello_get.or(api_1).or(api_2).or(api_3));
+    let api_4 = post()
+        .and(path("echo"))
+        .and(path::end())
+        .and(json_arb_data())
+        .and(ids_filter.clone())
+        .and_then(api_4_hit);
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    let routes = post().and(hello_get.or(api_1).or(api_2).or(api_3).or(api_4));
+
+    serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
 fn get_unix_epoch() -> u128 {
@@ -276,27 +344,15 @@ fn get_unix_epoch() -> u128 {
         .as_millis()
 }
 
-// fn json_body<T: std::marker::Send + for<'de> Deserialize<'de>>() -> impl Filter<Extract = (T,), Error = warp::Rejection> + Clone {
-//     // When accepting a body, we want a JSON body
-//     // (and to reject huge payloads)...
-//     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
-// }
-
-fn json_body() -> impl Filter<Extract = (u128,), Error = warp::Rejection> + Clone {
-    // When accepting a body, we want a JSON body
-    // (and to reject huge payloads)...
-    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+fn json_body() -> impl Filter<Extract = (u128,), Error = Rejection> + Clone {
+    body::content_length_limit(1024 * 16).and(body::json())
 }
 
 fn json_arb_data<T: std::marker::Send + for<'de> Deserialize<'de>>(
-) -> impl Filter<Extract = (Data<T>,), Error = warp::Rejection> + Clone {
-    // When accepting a body, we want a JSON body
-    // (and to reject huge payloads)...
-    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+) -> impl Filter<Extract = (Data<T>,), Error = Rejection> + Clone {
+    body::content_length_limit(1024 * 16).and(body::json())
 }
 
-fn role_json() -> impl Filter<Extract = (Role,), Error = warp::Rejection> + Clone {
-    // When accepting a body, we want a JSON body
-    // (and to reject huge payloads)...
-    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+fn role_json() -> impl Filter<Extract = (Role,), Error = Rejection> + Clone {
+    body::content_length_limit(1024 * 16).and(body::json())
 }
