@@ -298,14 +298,14 @@ async fn main() {
     let ids_filter = any().map(move || ids.clone());
 
     let api_1 = post()
-        .and(path("api_1"))
+        .and(path("short_wait"))
         .and(path::end())
         .and(json_body())
         .and(ids_filter.clone())
         .and_then(api_1_hit);
 
     let api_2 = post()
-        .and(path("api_2"))
+        .and(path("long_wait"))
         .and(path::end())
         .and(json_body())
         .and(ids_filter.clone())
@@ -319,7 +319,7 @@ async fn main() {
         .and_then(get_id);
 
     let api_3 = post()
-        .and(path("api_3"))
+        .and(path("add_to_list"))
         .and(path::end())
         .and(json_arb_data())
         .and(ids_filter.clone())
