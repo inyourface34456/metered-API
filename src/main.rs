@@ -12,16 +12,18 @@ use Filter;
 #[derive(Hash, Eq, PartialEq)]
 struct Usage {
     num_times_used: u32,
-    next_use_allowed: u128,
+    next_use_allowed: u64,
+    allowed: bool,
     endpoint: Endpoint,
 }
 
 impl Usage {
-    fn new(name: String, req_before_cooldown: u16, lim_time: u16, cooldown_time: u16) -> Self {
+    fn new(name: String, req_before_cooldown: u16, cooldown_time: u16) -> Self {
         Self {
             num_times_used: 0,
             next_use_allowed: 0,
-            endpoint: Endpoint::new(name, req_before_cooldown, lim_time, cooldown_time),
+            allowed: true,
+            endpoint: Endpoint::new(name, req_before_cooldown, cooldown_time),
         }
     }
 }
@@ -53,7 +55,6 @@ enum Role {
 struct Endpoint {
     name: String,
     req_before_cooldown: u16,
-    lim_time: u16,
     cooldown_time: u16,
 }
 
@@ -61,13 +62,11 @@ impl Endpoint {
     const fn new(
         name: String,
         req_before_cooldown: u16,
-        lim_time: u16,
         cooldown_time: u16,
     ) -> Self {
         Self {
             name,
             req_before_cooldown,
-            lim_time,
             cooldown_time,
         }
     }
@@ -81,12 +80,12 @@ struct Ids {
 }
 
 impl Ids {
-    // you can make A number of hits on ENDPOINT in B time, if you go over, you have to wait C mins
-    const API_LIMITS: [(&'static str, u16, u16, u16); 4] = [
-        ("/api_1", 10, 1, 1),
-        ("/api_2", 1, 10, 100),
-        ("/api_3", 60, 1, 1),
-        ("/api_4", 60, 1, 1),
+    // You can make A hits until you have to wait B mins
+    const API_LIMITS: [(&'static str, u16, u16); 4] = [
+        ("/short_wait", 10, 1),
+        ("/long_wait", 1, 100),
+        ("/add_to_list", 60, 1),
+        ("/echo", 60, 1),
     ];
 
     fn new() -> Self {
@@ -105,7 +104,7 @@ impl Ids {
                 for i in Self::API_LIMITS {
                     map.insert(
                         String::from(i.0),
-                        Usage::new(String::from(i.0), i.1, i.2, i.3),
+                        Usage::new(String::from(i.0), i.1, i.2),
                     );
                 }
             }
@@ -113,7 +112,7 @@ impl Ids {
                 for i in Self::API_LIMITS {
                     map.insert(
                         String::from(i.0),
-                        Usage::new(String::from(i.0), u16::MAX, 0, 0),
+                        Usage::new(String::from(i.0), u16::MAX, 0,),
                     );
                 }
             }
@@ -172,14 +171,17 @@ impl Ids {
                     Some(dat) => {
                         let current_time = get_unix_epoch();
 
-                        if dat.num_times_used >= dat.endpoint.req_before_cooldown.into() {
-                            dat.next_use_allowed = current_time + dat.next_use_allowed * 60 * 1000;
+                        if dat.next_use_allowed > current_time {
                             allowed = false;
+                            dat.allowed = false;
+                        } else if dat.num_times_used >= dat.endpoint.req_before_cooldown.into() {
+                            dat.next_use_allowed = current_time + <u16 as Into<u64>>::into(dat.endpoint.cooldown_time * 60);
+                            allowed = false;
+                            dat.allowed = false;
                             dat.num_times_used = 0;
-                        } else if dat.next_use_allowed > current_time {
-                            allowed = false;
                         } else {
                             allowed = true;
+                            dat.allowed = true;
                             dat.num_times_used += 1;
                         }
                     }
@@ -193,7 +195,7 @@ impl Ids {
         (allowed, role)
     }
 
-    fn time_until_next_allowed_hit(&self, user: u128, endpoint: &str) -> u128 {
+    fn time_until_next_allowed_hit(&self, user: u128, endpoint: &str) -> Option<u64> {
         match self.usage_list.read() {
             Ok(dat) => {
                 match dat.get(&user) {
@@ -203,43 +205,47 @@ impl Ids {
                                 let current_time = get_unix_epoch();
 
                                 if dat.next_use_allowed > current_time {
-                                    return (dat.next_use_allowed - current_time) / 1000
+                                    Some(dat.next_use_allowed-current_time)
                                 } else {
-                                    return 0
+                                    Some(0)
                                 }
                             }
-                            None => 0
+                            None => None
                         }
                     }
-                    None => 0
+                    None => None
                 }
             },
-            Err(_) => 0
+            Err(_) => None
         }
     }
 
-    fn num_hits_untill_timeout(&self, user: u128, endpoint: &str) -> u32 {
+    fn num_hits_untill_timeout(&self, user: u128, endpoint: &str) -> Option<u32> {
         match self.usage_list.read() {
             Ok(dat) => {
                 match dat.get(&user) {
                     Some(dat) => {
                         match dat.get(&endpoint.to_string()) {
                             Some(dat) => {
-                               dat.endpoint.req_before_cooldown as u32 - dat.num_times_used
+                                if dat.allowed {
+                                    Some(dat.endpoint.req_before_cooldown as u32 - dat.num_times_used)
+                                } else {
+                                    Some(0)
+                                }
                             }
-                            None => 0
+                            None => None
                         }
                     }
-                    None => 0
+                    None => None
                 }
             },
-            Err(_) => 0
+            Err(_) => None
         }
     }
 }
 
-async fn api_1_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
-    let result = arg_2.register_hit(user, "/api_1");
+async fn short_wait_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
+    let result = arg_2.register_hit(user, "/short_wait");
 
     if result.0 {
         Ok(reply::json(&String::from(result.1)))
@@ -248,8 +254,8 @@ async fn api_1_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
     }
 }
 
-async fn api_2_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
-    let result = arg_2.register_hit(user, "/api_2");
+async fn long_wait_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejection> {
+    let result = arg_2.register_hit(user, "/long_wait");
 
     if result.0 {
         Ok(reply::json(&String::from(result.1)))
@@ -266,8 +272,8 @@ async fn get_id(arg_1: Role, arg_2: Ids) -> Result<reply::Html<String>, Rejectio
     Ok(reply::html(arg_2.gen_new_id(arg_1).to_string()))
 }
 
-async fn api_3_hit(data: Data<i32>, ids: Ids) -> Result<impl Reply, Rejection> {
-    let result = ids.register_hit(data.authentication, "/api_3");
+async fn add_to_list_hit(data: Data<i32>, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(data.authentication, "/add_to_list");
 
     if result.0 {
         match ids.api_3_data.write() {
@@ -282,8 +288,8 @@ async fn api_3_hit(data: Data<i32>, ids: Ids) -> Result<impl Reply, Rejection> {
     }
 }
 
-async fn api_4_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
-    let result = ids.register_hit(data.authentication, "/api_4").0;
+async fn echo_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(data.authentication, "/echo").0;
 
     if result {
         return Ok(reply::with_status(reply::json(&data.data), StatusCode::OK))
@@ -292,56 +298,99 @@ async fn api_4_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection
     }
 }
 
+async fn next_allowed_request_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.time_until_next_allowed_hit(data.authentication, &data.data);
+
+    if let Some(num) = result {
+        return Ok(reply::with_status(format!("{} seconds", num), StatusCode::OK))
+    } else {
+        return Ok(reply::with_status("failed".to_string(), StatusCode::FORBIDDEN))
+    }
+}
+
+async fn until_limit_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.num_hits_untill_timeout(data.authentication, &data.data);
+
+    if let Some(num) = result {
+        return Ok(reply::with_status(format!("{} requests left", num), StatusCode::OK))
+    } else {
+        return Ok(reply::with_status("failed".to_string(), StatusCode::FORBIDDEN))
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let ids = Ids::new();
     let ids_filter = any().map(move || ids.clone());
 
-    let api_1 = post()
+    let short_wait = post()
         .and(path("short_wait"))
         .and(path::end())
         .and(json_body())
         .and(ids_filter.clone())
-        .and_then(api_1_hit);
+        .and_then(short_wait_hit);
 
-    let api_2 = post()
+    let long_wait = post()
         .and(path("long_wait"))
         .and(path::end())
         .and(json_body())
         .and(ids_filter.clone())
-        .and_then(api_2_hit);
+        .and_then(long_wait_hit);
 
-    let hello_get = post()
+    let get_id = post()
         .and(path("get_id"))
         .and(path::end())
         .and(role_json())
         .and(ids_filter.clone())
         .and_then(get_id);
 
-    let api_3 = post()
+    let add_to_list = post()
         .and(path("add_to_list"))
         .and(path::end())
         .and(json_arb_data())
         .and(ids_filter.clone())
-        .and_then(api_3_hit);
+        .and_then(add_to_list_hit);
 
-    let api_4 = post()
+    let echo = post()
         .and(path("echo"))
         .and(path::end())
         .and(json_arb_data())
         .and(ids_filter.clone())
-        .and_then(api_4_hit);
+        .and_then(echo_hit);
 
-    let routes = post().and(hello_get.or(api_1).or(api_2).or(api_3).or(api_4));
+    let next_allowed_request = post()
+        .and(path("next_allowed_request"))
+        .and(path::end())
+        .and(json_arb_data())
+        .and(ids_filter.clone())
+        .and_then(next_allowed_request_hit);
+
+    let until_limit = post()
+        .and(path("until_limit"))
+        .and(path::end())
+        .and(json_arb_data())
+        .and(ids_filter.clone())
+        .and_then(until_limit_hit);
+
+    let routes = post()
+    .and(
+        get_id
+        .or(short_wait)
+        .or(long_wait)
+        .or(add_to_list)
+        .or(echo)
+        .or(next_allowed_request)
+        .or(until_limit)
+    );
 
     serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-fn get_unix_epoch() -> u128 {
+fn get_unix_epoch() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_millis()
+        .as_secs()
 }
 
 fn json_body() -> impl Filter<Extract = (u128,), Error = Rejection> + Clone {
