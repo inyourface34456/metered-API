@@ -9,15 +9,17 @@ pub struct Ids {
     pub id_list: Arc<RwLock<HashMap<u128, Role>>>,
     pub usage_list: Arc<RwLock<HashMap<u128, HashMap<String, Usage>>>>,
     pub api_3_data: Arc<RwLock<Vec<i32>>>,
+    pub str_dict_data: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl Ids {
     // You can make A hits until you have to wait B mins
-    const API_LIMITS: [(&'static str, u16, u16); 4] = [
+    const API_LIMITS: [(&'static str, u16, u16); 5] = [
         ("/short_wait", 10, 1),
         ("/long_wait", 1, 100),
         ("/add_to_list", 60, 1),
         ("/echo", 60, 1),
+        ("/add_KV_pair", 60, 1)
     ];
 
     pub fn new() -> Self {
@@ -25,6 +27,7 @@ impl Ids {
             id_list: Arc::new(RwLock::new(HashMap::new())),
             usage_list: Arc::new(RwLock::new(HashMap::new())),
             api_3_data: Arc::new(RwLock::new(vec![])),
+            str_dict_data: Arc::new(RwLock::new(HashMap::new()))
         }
     }
 

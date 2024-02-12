@@ -1,4 +1,5 @@
 use crate::{Data, Ids, Role};
+use crate::data::Data2;
 use http::StatusCode;
 use warp::*;
 
@@ -92,4 +93,30 @@ pub async fn until_limit_hit(data: Data<String>, ids: Ids) -> Result<impl Reply,
         "failed".to_string(),
         StatusCode::FORBIDDEN,
     ))
+}
+
+pub async fn add_KV_pair_hit(data: Data2<String, String>, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(data.authentication, "/add_KV_pair").0;
+
+    if result {
+        match ids.str_dict_data.write() {
+            Ok(mut map) => {
+                match map.insert(data.data1, data.data2) {
+                    Some(_) => Ok(reply::with_status(reply::json(&map.clone()), StatusCode::OK)),
+                    None => Ok(reply::with_status(reply::json(&map.clone()), StatusCode::OK))
+                }
+            },
+            Err(_) => {
+                Ok(reply::with_status(
+                    reply::json(&"try again".to_string()),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                ))
+            }
+        }
+    } else {
+        Ok(reply::with_status(
+            reply::json(&"retelimated".to_string()),
+            StatusCode::TOO_MANY_REQUESTS,
+        ))
+    }
 }

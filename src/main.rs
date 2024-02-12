@@ -71,6 +71,13 @@ async fn main() {
         .and(ids_filter.clone())
         .and_then(until_limit_hit);
 
+    let add_KV_pair = post()
+        .and(path("add_KV_pair"))
+        .and(path::end())
+        .and(json_arb_data2())
+        .and(ids_filter.clone())
+        .and_then(add_KV_pair_hit);
+
     let routes = post().and(
         get_id
             .or(short_wait)
@@ -78,7 +85,8 @@ async fn main() {
             .or(add_to_list)
             .or(echo)
             .or(next_allowed_request)
-            .or(until_limit),
+            .or(until_limit)
+            .or(add_KV_pair),
     );
 
     serve(routes).run(([127, 0, 0, 1], 3030)).await;
