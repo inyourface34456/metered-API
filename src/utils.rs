@@ -1,7 +1,7 @@
-use std::time::{UNIX_EPOCH, SystemTime};
-use warp::*;
-use crate::{Role, Data};
+use crate::{Data, Role};
 use serde::Deserialize;
+use std::time::{SystemTime, UNIX_EPOCH};
+use warp::*;
 
 pub fn get_unix_epoch() -> u64 {
     SystemTime::now()

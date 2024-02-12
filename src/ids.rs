@@ -1,8 +1,8 @@
-use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use crate::{get_unix_epoch, Role, Usage};
 use rand::Rng;
-use crate::{Role, Usage, get_unix_epoch};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 pub struct Ids {
@@ -34,17 +34,14 @@ impl Ids {
         match role {
             Role::Standered => {
                 for i in Self::API_LIMITS {
-                    map.insert(
-                        String::from(i.0),
-                        Usage::new(String::from(i.0), i.1, i.2),
-                    );
+                    map.insert(String::from(i.0), Usage::new(String::from(i.0), i.1, i.2));
                 }
             }
             Role::Admin => {
                 for i in Self::API_LIMITS {
                     map.insert(
                         String::from(i.0),
-                        Usage::new(String::from(i.0), u16::MAX, 0,),
+                        Usage::new(String::from(i.0), u16::MAX, 0),
                     );
                 }
             }
@@ -107,7 +104,8 @@ impl Ids {
                             allowed = false;
                             dat.allowed = false;
                         } else if dat.num_times_used >= dat.endpoint.req_before_cooldown.into() {
-                            dat.next_use_allowed = current_time + <u16 as Into<u64>>::into(dat.endpoint.cooldown_time * 60);
+                            dat.next_use_allowed = current_time
+                                + <u16 as Into<u64>>::into(dat.endpoint.cooldown_time * 60);
                             allowed = false;
                             dat.allowed = false;
                             dat.num_times_used = 0;
@@ -129,49 +127,41 @@ impl Ids {
 
     pub fn time_until_next_allowed_hit(&self, user: u128, endpoint: &str) -> Option<u64> {
         match self.usage_list.read() {
-            Ok(dat) => {
-                match dat.get(&user) {
+            Ok(dat) => match dat.get(&user) {
+                Some(dat) => match dat.get(&endpoint.to_string()) {
                     Some(dat) => {
-                        match dat.get(&endpoint.to_string()) {
-                            Some(dat) => {
-                                let current_time = get_unix_epoch();
+                        let current_time = get_unix_epoch();
 
-                                if dat.next_use_allowed > current_time {
-                                    Some(dat.next_use_allowed-current_time)
-                                } else {
-                                    Some(0)
-                                }
-                            }
-                            None => None
+                        if dat.next_use_allowed > current_time {
+                            Some(dat.next_use_allowed - current_time)
+                        } else {
+                            Some(0)
                         }
                     }
-                    None => None
-                }
+                    None => None,
+                },
+                None => None,
             },
-            Err(_) => None
+            Err(_) => None,
         }
     }
 
     pub fn num_hits_untill_timeout(&self, user: u128, endpoint: &str) -> Option<u32> {
         match self.usage_list.read() {
-            Ok(dat) => {
-                match dat.get(&user) {
+            Ok(dat) => match dat.get(&user) {
+                Some(dat) => match dat.get(&endpoint.to_string()) {
                     Some(dat) => {
-                        match dat.get(&endpoint.to_string()) {
-                            Some(dat) => {
-                                if dat.allowed {
-                                    Some(dat.endpoint.req_before_cooldown as u32 - dat.num_times_used)
-                                } else {
-                                    Some(0)
-                                }
-                            }
-                            None => None
+                        if dat.allowed {
+                            Some(dat.endpoint.req_before_cooldown as u32 - dat.num_times_used)
+                        } else {
+                            Some(0)
                         }
                     }
-                    None => None
-                }
+                    None => None,
+                },
+                None => None,
             },
-            Err(_) => None
+            Err(_) => None,
         }
     }
 }

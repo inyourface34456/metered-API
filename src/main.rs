@@ -1,20 +1,20 @@
 #![allow(non_snake_case)]
-mod endpoint_funcs;
-mod usage;
 mod data;
-mod role;
 mod endpoint;
+mod endpoint_funcs;
 mod ids;
+mod role;
+mod usage;
 mod utils;
 
-use usage::Usage;
-use endpoint_funcs::*;
-use warp::*;
-use ids::Ids;
 use data::Data;
-use role::Role;
-use utils::*;
 use endpoint::Endpoint;
+use endpoint_funcs::*;
+use ids::Ids;
+use role::Role;
+use usage::Usage;
+use utils::*;
+use warp::*;
 use Filter;
 
 #[tokio::main]
@@ -71,15 +71,14 @@ async fn main() {
         .and(ids_filter.clone())
         .and_then(until_limit_hit);
 
-    let routes = post()
-    .and(
+    let routes = post().and(
         get_id
-        .or(short_wait)
-        .or(long_wait)
-        .or(add_to_list)
-        .or(echo)
-        .or(next_allowed_request)
-        .or(until_limit)
+            .or(short_wait)
+            .or(long_wait)
+            .or(add_to_list)
+            .or(echo)
+            .or(next_allowed_request)
+            .or(until_limit),
     );
 
     serve(routes).run(([127, 0, 0, 1], 3030)).await;

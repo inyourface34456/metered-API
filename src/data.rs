@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::Role;
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Data<T: std::marker::Send> {

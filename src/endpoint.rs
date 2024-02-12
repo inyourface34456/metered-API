@@ -6,11 +6,7 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub const fn new(
-        name: String,
-        req_before_cooldown: u16,
-        cooldown_time: u16,
-    ) -> Self {
+    pub const fn new(name: String, req_before_cooldown: u16, cooldown_time: u16) -> Self {
         Self {
             name,
             req_before_cooldown,

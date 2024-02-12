@@ -1,6 +1,4 @@
-use crate::Ids;
-use crate::Role;
-use crate::Data;
+use crate::{Data, Ids, Role};
 use http::StatusCode;
 use warp::*;
 
@@ -52,28 +50,46 @@ pub async fn echo_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Reject
     let result = ids.register_hit(data.authentication, "/echo").0;
 
     if result {
-        return Ok(reply::with_status(reply::json(&data.data), StatusCode::OK))
+        return Ok(reply::with_status(reply::json(&data.data), StatusCode::OK));
     }
-    
-    Ok(reply::with_status(reply::json(&"retelimated".to_string()), StatusCode::TOO_MANY_REQUESTS))
+
+    Ok(reply::with_status(
+        reply::json(&"retelimated".to_string()),
+        StatusCode::TOO_MANY_REQUESTS,
+    ))
 }
 
-pub async fn next_allowed_request_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
+pub async fn next_allowed_request_hit(
+    data: Data<String>,
+    ids: Ids,
+) -> Result<impl Reply, Rejection> {
     let result = ids.time_until_next_allowed_hit(data.authentication, &data.data);
 
     if let Some(num) = result {
-        return Ok(reply::with_status(format!("{} seconds", num), StatusCode::OK))
+        return Ok(reply::with_status(
+            format!("{} seconds", num),
+            StatusCode::OK,
+        ));
     }
 
-    Ok(reply::with_status("failed".to_string(), StatusCode::FORBIDDEN))
+    Ok(reply::with_status(
+        "failed".to_string(),
+        StatusCode::FORBIDDEN,
+    ))
 }
 
 pub async fn until_limit_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
     let result = ids.num_hits_untill_timeout(data.authentication, &data.data);
 
     if let Some(num) = result {
-        return Ok(reply::with_status(format!("{} requests left", num), StatusCode::OK))
+        return Ok(reply::with_status(
+            format!("{} requests left", num),
+            StatusCode::OK,
+        ));
     }
 
-    Ok(reply::with_status("failed".to_string(), StatusCode::FORBIDDEN))
+    Ok(reply::with_status(
+        "failed".to_string(),
+        StatusCode::FORBIDDEN,
+    ))
 }
