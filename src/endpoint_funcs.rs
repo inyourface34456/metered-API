@@ -1,5 +1,5 @@
-use crate::{Data, Ids, Role};
 use crate::data::Data2;
+use crate::{Ids, Role};
 use http::StatusCode;
 use warp::*;
 
@@ -24,20 +24,20 @@ pub async fn long_wait_hit(user: u128, arg_2: Ids) -> Result<impl Reply, Rejecti
 }
 
 pub async fn get_id(arg_1: Role, arg_2: Ids) -> Result<reply::Html<String>, Rejection> {
-    if arg_1 == Role::None {
-        return Ok(reply::html(String::from("failed")));
+    if let Some(id) = arg_2.gen_new_id(arg_1) {
+        Ok(reply::html(id.to_string()))
+    } else {
+        Ok(reply::html("failed".to_string()))
     }
-
-    Ok(reply::html(arg_2.gen_new_id(arg_1).to_string()))
 }
 
-pub async fn add_to_list_hit(data: Data<i32>, ids: Ids) -> Result<impl Reply, Rejection> {
-    let result = ids.register_hit(data.authentication, "/add_to_list");
+pub async fn add_to_list_hit(user:u128, data: i32, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(user, "/add_to_list");
 
     if result.0 {
         match ids.api_3_data.write() {
             Ok(mut dat) => {
-                dat.push(data.data);
+                dat.push(data);
                 return Ok(reply::json(&dat.clone()));
             }
             Err(_) => return Ok(reply::json(&String::from("failed"))),
@@ -47,11 +47,11 @@ pub async fn add_to_list_hit(data: Data<i32>, ids: Ids) -> Result<impl Reply, Re
     }
 }
 
-pub async fn echo_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
-    let result = ids.register_hit(data.authentication, "/echo").0;
+pub async fn echo_hit(user: u128, data: String, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(user, "/echo").0;
 
     if result {
-        return Ok(reply::with_status(reply::json(&data.data), StatusCode::OK));
+        return Ok(reply::with_status(reply::json(&data), StatusCode::OK));
     }
 
     Ok(reply::with_status(
@@ -61,10 +61,11 @@ pub async fn echo_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Reject
 }
 
 pub async fn next_allowed_request_hit(
-    data: Data<String>,
+    user: u128,
+    data: String,
     ids: Ids,
 ) -> Result<impl Reply, Rejection> {
-    let result = ids.time_until_next_allowed_hit(data.authentication, &data.data);
+    let result = ids.time_until_next_allowed_hit(user, &data);
 
     if let Some(num) = result {
         return Ok(reply::with_status(
@@ -79,8 +80,8 @@ pub async fn next_allowed_request_hit(
     ))
 }
 
-pub async fn until_limit_hit(data: Data<String>, ids: Ids) -> Result<impl Reply, Rejection> {
-    let result = ids.num_hits_untill_timeout(data.authentication, &data.data);
+pub async fn until_limit_hit(user: u128, data: String, ids: Ids) -> Result<impl Reply, Rejection> {
+    let result = ids.num_hits_untill_timeout(user, &data);
 
     if let Some(num) = result {
         return Ok(reply::with_status(
@@ -95,23 +96,29 @@ pub async fn until_limit_hit(data: Data<String>, ids: Ids) -> Result<impl Reply,
     ))
 }
 
-pub async fn add_KV_pair_hit(data: Data2<String, String>, ids: Ids) -> Result<impl Reply, Rejection> {
-    let result = ids.register_hit(data.authentication, "/add_KV_pair").0;
+pub async fn add_KV_pair_hit(
+    user: u128,
+    data: Data2<String, String>,
+    ids: Ids,
+) -> Result<impl Reply, Rejection> {
+    let result = ids.register_hit(user, "/add_KV_pair").0;
 
     if result {
         match ids.str_dict_data.write() {
-            Ok(mut map) => {
-                match map.insert(data.data1, data.data2) {
-                    Some(_) => Ok(reply::with_status(reply::json(&map.clone()), StatusCode::OK)),
-                    None => Ok(reply::with_status(reply::json(&map.clone()), StatusCode::OK))
-                }
+            Ok(mut map) => match map.insert(data.data1, data.data2) {
+                Some(_) => Ok(reply::with_status(
+                    reply::json(&map.clone()),
+                    StatusCode::OK,
+                )),
+                None => Ok(reply::with_status(
+                    reply::json(&map.clone()),
+                    StatusCode::OK,
+                )),
             },
-            Err(_) => {
-                Ok(reply::with_status(
-                    reply::json(&"try again".to_string()),
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                ))
-            }
+            Err(_) => Ok(reply::with_status(
+                reply::json(&"try again".to_string()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )),
         }
     } else {
         Ok(reply::with_status(

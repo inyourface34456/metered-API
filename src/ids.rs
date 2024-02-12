@@ -19,7 +19,7 @@ impl Ids {
         ("/long_wait", 1, 100),
         ("/add_to_list", 60, 1),
         ("/echo", 60, 1),
-        ("/add_KV_pair", 60, 1)
+        ("/add_KV_pair", 60, 1),
     ];
 
     pub fn new() -> Self {
@@ -27,7 +27,7 @@ impl Ids {
             id_list: Arc::new(RwLock::new(HashMap::new())),
             usage_list: Arc::new(RwLock::new(HashMap::new())),
             api_3_data: Arc::new(RwLock::new(vec![])),
-            str_dict_data: Arc::new(RwLock::new(HashMap::new()))
+            str_dict_data: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -54,12 +54,12 @@ impl Ids {
         map
     }
 
-    pub fn gen_new_id(&self, role: Role) -> u128 {
+    pub fn gen_new_id(&self, role: Role) -> Option<u128> {
         let mut rng = rand::thread_rng();
         let mut correct_id: u128 = 0;
 
         if role == Role::None {
-            return 0;
+            return None;
         }
 
         match self.id_list.write() {
@@ -82,20 +82,13 @@ impl Ids {
             }
             Err(_) => {}
         }
-        correct_id
+        
+        Some(correct_id)
     }
 
     pub fn register_hit(&self, user: u128, endpoint: &str) -> (bool, Role) {
         let mut allowed: bool = true;
-        let mut role: Role = Role::None;
-
-        match self.id_list.read() {
-            Ok(map) => match map.get(&user) {
-                Some(dat) => role = *dat,
-                None => {}
-            },
-            Err(_) => {}
-        }
+        let role: Role = self.get_role(user);
 
         match self.usage_list.write() {
             Ok(mut map) => match map.get_mut(&user) {
@@ -166,5 +159,19 @@ impl Ids {
             },
             Err(_) => None,
         }
+    }
+
+    fn get_role(&self, user: u128) -> Role {
+        let mut role = Role::None;
+        
+        match self.id_list.read() {
+            Ok(map) => match map.get(&user) {
+                Some(dat) => role = *dat,
+                None => {}
+            },
+            Err(_) => {}
+        }
+
+        role
     }
 }

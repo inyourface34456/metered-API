@@ -7,7 +7,6 @@ mod role;
 mod usage;
 mod utils;
 
-use data::Data;
 use endpoint::Endpoint;
 use endpoint_funcs::*;
 use ids::Ids;
@@ -25,14 +24,14 @@ async fn main() {
     let short_wait = post()
         .and(path("short_wait"))
         .and(path::end())
-        .and(json_body())
+        .and(header::<u128>("Authentication"))
         .and(ids_filter.clone())
         .and_then(short_wait_hit);
 
     let long_wait = post()
         .and(path("long_wait"))
         .and(path::end())
-        .and(json_body())
+        .and(header::<u128>("Authentication"))
         .and(ids_filter.clone())
         .and_then(long_wait_hit);
 
@@ -46,6 +45,7 @@ async fn main() {
     let add_to_list = post()
         .and(path("add_to_list"))
         .and(path::end())
+        .and(header::<u128>("Authentication"))
         .and(json_arb_data())
         .and(ids_filter.clone())
         .and_then(add_to_list_hit);
@@ -53,6 +53,7 @@ async fn main() {
     let echo = post()
         .and(path("echo"))
         .and(path::end())
+        .and(header::<u128>("Authentication"))
         .and(json_arb_data())
         .and(ids_filter.clone())
         .and_then(echo_hit);
@@ -60,6 +61,7 @@ async fn main() {
     let next_allowed_request = post()
         .and(path("next_allowed_request"))
         .and(path::end())
+        .and(header::<u128>("Authentication"))
         .and(json_arb_data())
         .and(ids_filter.clone())
         .and_then(next_allowed_request_hit);
@@ -67,6 +69,7 @@ async fn main() {
     let until_limit = post()
         .and(path("until_limit"))
         .and(path::end())
+        .and(header::<u128>("Authentication"))
         .and(json_arb_data())
         .and(ids_filter.clone())
         .and_then(until_limit_hit);
@@ -74,6 +77,7 @@ async fn main() {
     let add_KV_pair = post()
         .and(path("add_KV_pair"))
         .and(path::end())
+        .and(header::<u128>("Authentication"))
         .and(json_arb_data2())
         .and(ids_filter.clone())
         .and_then(add_KV_pair_hit);
@@ -86,7 +90,7 @@ async fn main() {
             .or(echo)
             .or(next_allowed_request)
             .or(until_limit)
-            .or(add_KV_pair),
+            .or(add_KV_pair)
     );
 
     serve(routes).run(([127, 0, 0, 1], 3030)).await;
